@@ -7,6 +7,29 @@ import threading
 import pytesseract
 import time
 import shutil
+import sys
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.show_tooltip)
+        self.widget.bind("<Leave>", self.hide_tooltip)
+        self.tooltip = None
+
+    def show_tooltip(self, event):
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        self.tooltip = tk.Toplevel(self.widget)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(self.tooltip, text=self.text, background="yellow", relief="solid", borderwidth=1, font=("Arial", 10, "normal"))
+        label.pack()
+
+    def hide_tooltip(self, event):
+        if self.tooltip:
+            self.tooltip.destroy()
+        self.tooltip = None
 
 class VideoRecorderApp:
     def __init__(self, root):
@@ -47,6 +70,11 @@ class VideoRecorderApp:
         self.video_writer = None
 
         threading.Thread(target=self.populate_devices).start()
+    
+    def announce(self, widget, description):
+        widget.focus()
+        widget.bind("<FocusIn>", lambda e: self.root.after(10, lambda: self.root.bell()))
+        widget.bind("<FocusIn>", lambda e: self.root.after(20, lambda: self.root.event_generate('<<announce>>', data=description)))
 
     def on_closing(self):
         self.is_previewing = False
@@ -56,6 +84,8 @@ class VideoRecorderApp:
             self.cap.release()
 
         self.root.destroy()
+        sys.exit()
+
 
     def select_camera_by_shortcut(self, event):
         index = int(event.char)
@@ -79,6 +109,7 @@ class VideoRecorderApp:
         self.device_combo = ttk.Combobox(self.left_frame, state="readonly")
         self.device_combo.pack(pady=10)
         self.device_combo.bind("<<ComboboxSelected>>", lambda event: self.start_preview())
+        self.announce(self.device_combo, "Select the camera device from this dropdown")
 
         self.searching_label = tk.Label(self.left_frame, text="Searching for camera devices...", fg="blue")
         self.searching_label.pack(pady=10)
@@ -87,79 +118,115 @@ class VideoRecorderApp:
         self.start_button.pack(pady=10)
         self.start_button.config(takefocus=True)
         self.start_button.config(text="Start Recording", underline=0)
+        ToolTip(self.start_button, "Start recording the video")
+        self.announce(self.start_button, "Start recording the video")
 
         self.stop_button = tk.Button(self.left_frame, text="Stop Recording", command=self.stop_recording, state=tk.DISABLED)
         self.stop_button.pack(pady=10)
         self.stop_button.config(takefocus=True)
         self.stop_button.config(text="Stop Recording", underline=0)
+        ToolTip(self.stop_button, "Stop recording the video")
+        self.announce(self.stop_button, "Stop recording the video")
+
 
         self.take_picture_button = tk.Button(self.left_frame, text="Take Picture", command=self.take_picture)
         self.take_picture_button.pack(pady=10)
         self.take_picture_button.config(takefocus=True)
         self.take_picture_button.config(text="Take Picture", underline=0)
+        ToolTip(self.take_picture_button, "Take a picture from the video feed")
+        self.announce(self.take_picture_button, "Take a picture from the video feed")
+
 
         self.zoom_in_button = tk.Button(self.left_frame, text="Zoom In", command=self.zoom_in)
         self.zoom_in_button.pack(pady=10)
         self.zoom_in_button.config(takefocus=True)
         self.zoom_in_button.config(text="Zoom In", underline=0)
+        ToolTip(self.zoom_in_button, "Zoom in on the video feed")
+        self.announce(self.zoom_in_button, "Zoom in on the video feed")
 
         self.zoom_out_button = tk.Button(self.left_frame, text="Zoom Out", command=self.zoom_out)
         self.zoom_out_button.pack(pady=10)
         self.zoom_out_button.config(takefocus=True)
         self.zoom_out_button.config(text="Zoom Out", underline=0)
+        ToolTip(self.zoom_out_button, "Zoom out of the video feed")
+        self.announce(self.zoom_out_button, "Zoom out of the video feed")
 
         self.next_filter_button = tk.Button(self.left_frame, text="Next Filter", command=self.next_filter)
         self.next_filter_button.pack(pady=10)
         self.next_filter_button.config(takefocus=True)
         self.next_filter_button.config(text="Next Filter", underline=0)
+        ToolTip(self.next_filter_button, "Apply the next filter to the video feed")
+        self.announce(self.next_filter_button, "Apply the next filter to the video feed")
+
 
         self.prev_filter_button = tk.Button(self.left_frame, text="Previous Filter", command=self.prev_filter)
         self.prev_filter_button.pack(pady=10)
         self.prev_filter_button.config(takefocus=True)
         self.prev_filter_button.config(text="Previous Filter", underline=0)
+        ToolTip(self.prev_filter_button, "Apply the previous filter to the video feed")
+        self.announce(self.prev_filter_button, "Apply the previous filter to the video feed")
+
 
         self.freeze_frame_button = tk.Button(self.left_frame, text="Freeze Frame", command=self.freeze_frame)
         self.freeze_frame_button.pack(pady=10)
         self.freeze_frame_button.config(takefocus=True)
         self.freeze_frame_button.config(text="Freeze Frame", underline=0)
+        ToolTip(self.freeze_frame_button, "Freeze the current frame of the video feed")
+        self.announce(self.freeze_frame_button, "Freeze the current frame of the video feed")
+
 
         self.save_image_button = tk.Button(self.left_frame, text="Save Image", command=self.save_image)
         self.save_image_button.pack(pady=10)
         self.save_image_button.config(takefocus=True)
         self.save_image_button.config(text="Save Image", underline=0)
+        ToolTip(self.save_image_button, "Save the current frame as an image")
+        self.announce(self.save_image_button, "Save the current frame as an image")
 
         self.open_image_button = tk.Button(self.left_frame, text="Open Image", command=self.open_image)
         self.open_image_button.pack(pady=10)
         self.open_image_button.config(takefocus=True)
         self.open_image_button.config(text="Open Image", underline=0)
+        ToolTip(self.open_image_button, "Open an image file")
+        self.announce(self.open_image_button, "Open an image file")
 
         self.ocr_button = tk.Button(self.left_frame, text="OCR", command=self.ocr)
         self.ocr_button.pack(pady=10)
         self.ocr_button.config(takefocus=True)
         self.ocr_button.config(text="OCR", underline=0)
+        ToolTip(self.ocr_button, "Perform OCR on the frozen frame")
+        self.announce(self.ocr_button, "Perform OCR on the frozen frame")
 
         self.contrast_slider = tk.Scale(self.right_frame, from_=0, to_=4, resolution=0.1, orient=tk.HORIZONTAL, label="Contrast", command=self.update_contrast_brightness)
         self.contrast_slider.pack(pady=10)
         self.contrast_slider.set(1.0)
         self.contrast_slider.config(takefocus=True)
+        ToolTip(self.contrast_slider, "Adjust the contrast of the video feed")
+        self.announce(self.contrast_slider, "Adjust the contrast of the video feed")
 
         self.brightness_slider = tk.Scale(self.right_frame, from_=-100, to_=100, orient=tk.HORIZONTAL, label="Brightness", command=self.update_contrast_brightness)
         self.brightness_slider.pack(pady=10)
         self.brightness_slider.set(0)
         self.brightness_slider.config(takefocus=True)
+        ToolTip(self.brightness_slider, "Adjust the brightness of the video feed")
+        self.announce(self.brightness_slider, "Adjust the brightness of the video feed")
 
         self.sharpness_slider = tk.Scale(self.right_frame, from_=0, to_=2, resolution=0.1, orient=tk.HORIZONTAL, label="Sharpness", command=self.update_sharpness)
         self.sharpness_slider.pack(pady=10)
         self.sharpness_slider.set(1.0)
         self.sharpness_slider.config(takefocus=True)
+        ToolTip(self.sharpness_slider, "Adjust the sharpness of the video feed")
+        self.announce(self.sharpness_slider, "Adjust the sharpness of the video feed")
 
         self.saturation_slider = tk.Scale(self.right_frame, from_=0, to_=3, resolution=0.1, orient=tk.HORIZONTAL, label="Saturation", command=self.update_saturation)
         self.saturation_slider.pack(pady=10)
         self.saturation_slider.set(1.0)
         self.saturation_slider.config(takefocus=True)
+        ToolTip(self.saturation_slider, "Adjust the saturation of the video feed")
+        self.announce(self.saturation_slider, "Adjust the saturation of the video feed")
 
-        self.canvas = tk.Canvas(self.main_frame, bg='black')
+        self.canvas = tk.Canvas(self.main_frame, bg='white')
         self.canvas.pack(fill=tk.BOTH, expand=True)
+
 
     def populate_devices(self):
         devices = []
@@ -395,9 +462,9 @@ class VideoRecorderApp:
 
     def apply_contrast_brightness(self, frame):
         contrast = int(self.contrast_slider.get())
-        print(contrast)
+        #print(contrast)
         brightness = int(self.brightness_slider.get())
-        print(brightness)
+        #print(brightness)
         frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
         return frame
 
