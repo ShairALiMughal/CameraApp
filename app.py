@@ -8,6 +8,13 @@ import pytesseract
 import time
 import shutil
 import sys
+import pyttsx3
+def speak_async(text):
+        def run_speak():
+            engine = pyttsx3.init()
+            engine.say(text)
+            engine.runAndWait()
+        threading.Thread(target=run_speak).start()
 class ToolTip:
     def __init__(self, widget, text):
         self.widget = widget
@@ -34,6 +41,7 @@ class ToolTip:
 class VideoRecorderApp:
     def __init__(self, root):
         self.root = root
+        self.engine = pyttsx3.init()
         self.root.title("Dwellink iGo Zoom")
         self.root.geometry("1200x700")
         self.root.state('zoomed')  # Start in maximized mode
@@ -55,18 +63,22 @@ class VideoRecorderApp:
         self.cap = None
         self.zoom_level = 1.0
         self.filters = [
-            self.no_filter,
-            self.greyscale,
-            self.sepia,
-            self.negative,
-            self.high_contrast,
-            self.yellow_on_black,
-            self.yellow_on_blue,
-            self.black_on_yellow,
-            self.green_on_black,
-            self.blue_on_white,
-            self.red_on_black,
-            self.normal
+            ("No Filter", self.no_filter),
+            ("Grayscale", self.greyscale),
+            ("Sepia", self.sepia),
+            ("Negative", self.negative),
+            ("High Contrast", self.high_contrast),
+            ("Yellow on Black", self.yellow_on_black),
+            ("Yellow on Blue", self.yellow_on_blue),
+            ("Black on Yellow", self.black_on_yellow),
+            ("Green on Black", self.green_on_black),
+            ("Blue on White", self.blue_on_white),
+            ("Red on Black", self.red_on_black),
+            ("Inverted", self.inverted),
+            ("Inverted Grayscale", self.inverted_grayscale),
+            ("Blue on Yellow", self.blue_on_yellow),
+            ("White on Blue", self.white_on_blue),
+            ("Black on Red", self.black_on_red)
         ]
         self.filter_index = 0
         self.frozen_frame = None
@@ -79,6 +91,18 @@ class VideoRecorderApp:
         self.video_writer = None
 
         threading.Thread(target=self.populate_devices).start()
+    
+    
+    def apply_colored_filter(self, frame, color1, color2, thresh_low, thresh_high):
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, thresh_low, thresh_high)
+        frame1 = cv2.bitwise_and(frame, frame, mask=mask)
+        frame2 = cv2.bitwise_and(frame, frame, mask=cv2.bitwise_not(mask))
+        color_frame1 = np.full(frame1.shape, color1, dtype=np.uint8)  # Color for the masked region
+        color_frame2 = np.full(frame2.shape, color2, dtype=np.uint8)  # Color for the non-masked region
+        blended_frame1 = cv2.addWeighted(frame1, 0.5, color_frame1, 0.5, 0)
+        blended_frame2 = cv2.addWeighted(frame2, 0.5, color_frame2, 0.5, 0)
+        return cv2.add(blended_frame1, blended_frame2)
 
     def handle_announce(self, event):
         description = event.widget.cget('data')
@@ -261,35 +285,42 @@ class VideoRecorderApp:
 
     def populate_devices(self):
         devices = []
-        index = 0
-        while True:
+        max_devices = 10  # Set a reasonable limit to avoid long wait times
+
+        for index in range(max_devices):
             cap = cv2.VideoCapture(index)
-            if not cap.read()[0]:
-                cap.release()
-                break
-            devices.append(f"Camera {index}")
+            ret, _ = cap.read()
             cap.release()
-            index += 1
+
+            if ret:
+                devices.append(f"Camera {index}")
+            else:
+                break  # Stop searching when a device fails to initialize
 
         print("Devices found:", devices)  # Debug print
 
         if devices:
-            self.device_combo['values'] = devices
-            self.device_combo.current(0)
+            self.root.after(0, self.update_device_combo, devices)
         else:
-            messagebox.showerror("Error", "No camera devices found")
-        
-        # Remove the searching label
+            self.root.after(0, lambda: messagebox.showerror("Error", "No camera devices found"))
+
+        # Remove the searching label and set focus to main window for shortcuts
+        self.root.after(0, self.finalize_device_search)
+
+    def update_device_combo(self, devices):
+        self.device_combo['values'] = devices
+        self.device_combo.current(0)
+        self.start_preview()  # Start preview automatically if devices are found
+
+    def finalize_device_search(self):
         self.searching_label.pack_forget()
-
-        # Automatically select the first device if available
-        if devices:
-            self.device_combo.current(0)
-            self.start_preview()
-
-        # Set focus to the main window or another widget to ensure shortcuts work
         self.root.focus()
 
+    def threaded_populate_devices(self):
+        thread = threading.Thread(target=self.populate_devices)
+        thread.daemon = True
+        thread.start()
+    
     def start_preview(self):
         selected_device = self.device_combo.get()
         print("Selected device:", selected_device)  # Debug print
@@ -352,9 +383,18 @@ class VideoRecorderApp:
 
     def next_filter(self):
         self.filter_index = (self.filter_index + 1) % len(self.filters)
+        filter_name, _ = self.filters[self.filter_index]
+        speak_async(filter_name)  # This will not block the main thread
+        self.apply_filter(self.frame)
+        self.display_frame(self.frame)  # Ensure the frame updates immediately after applying the filter
 
     def prev_filter(self):
-        self.filter_index = (self.filter_index - 1) % len(self.filters)
+        self.filter_index = (self.filter_index - 1 + len(self.filters)) % len(self.filters)
+        filter_name, _ = self.filters[self.filter_index]
+        speak_async(filter_name)  # This will not block the main thread
+        self.apply_filter(self.frame)
+        self.display_frame(self.frame)  # Ensure the frame updates immediately after applying the filter
+
 
     def freeze_frame(self):
         if self.frozen_frame is None and self.frame is not None:
@@ -457,37 +497,47 @@ class VideoRecorderApp:
 
     def apply_filter(self, frame):
         if self.filter_index == 0:
-            return frame
+            return frame  # No filter applied
         elif self.filter_index == 1:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            return cv2.cvtColor(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
         elif self.filter_index == 2:
-            frame = cv2.transform(frame, np.matrix([[0.272, 0.534, 0.131],
-                                                    [0.349, 0.686, 0.168],
-                                                    [0.393, 0.769, 0.189]]))
-            frame[np.where(frame > 255)] = 255
+            frame = cv2.transform(frame, np.array([[0.272, 0.534, 0.131],
+                                                [0.349, 0.686, 0.168],
+                                                [0.393, 0.769, 0.189]]))
+            return np.clip(frame, 0, 255).astype(np.uint8)
         elif self.filter_index == 3:
-            frame = cv2.bitwise_not(frame)
+            return cv2.bitwise_not(frame)
         elif self.filter_index == 4:
             lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
             clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
             cl = clahe.apply(l)
             limg = cv2.merge((cl, a, b))
-            frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+            return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
         elif self.filter_index == 5:
-            frame = self.yellow_on_black(frame)
+            return self.yellow_on_black(frame)
         elif self.filter_index == 6:
-            frame = self.yellow_on_blue(frame)
+            return self.yellow_on_blue(frame)
         elif self.filter_index == 7:
-            frame = self.black_on_yellow(frame)
+            return self.black_on_yellow(frame)
         elif self.filter_index == 8:
-            frame = self.green_on_black(frame)
+            return self.green_on_black(frame)
         elif self.filter_index == 9:
-            frame = self.blue_on_white(frame)
+            return self.blue_on_white(frame)
         elif self.filter_index == 10:
-            frame = self.red_on_black(frame)
-        return frame
+            return self.red_on_black(frame)
+        elif self.filter_index == 11:
+            return self.inverted(frame)
+        elif self.filter_index == 12:
+            return self.inverted_grayscale(frame)
+        elif self.filter_index == 13:
+            return self.blue_on_yellow(frame)
+        elif self.filter_index == 14:
+            return self.white_on_blue(frame)
+        elif self.filter_index == 15:
+            return self.black_on_red(frame)
+        else:
+            return frame  # Default to no filter if index is out of range
 
 
     def no_filter(self, frame):
@@ -502,9 +552,50 @@ class VideoRecorderApp:
                                                 [0.393, 0.769, 0.189]]))
         frame[np.where(frame > 255)] = 255
         return frame
-
+    
+    def inverted(self, frame):
+        return cv2.bitwise_not(frame)
+    
     def negative(self, frame):
         return cv2.bitwise_not(frame)
+    
+    def inverted_grayscale(self, frame):
+        try:
+            # Convert to grayscale
+            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Invert the grayscale frame
+            inverted_frame = cv2.bitwise_not(gray_frame)
+            # Convert back to BGR for display consistency with other filters
+            return cv2.cvtColor(inverted_frame, cv2.COLOR_GRAY2BGR)
+        except Exception as e:
+            print(f"Error applying inverted grayscale: {e}")
+            return frame  # Return the original frame in case of an error
+        
+
+
+    
+    def blue_on_yellow(self, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(frame, (20, 100, 100), (30, 255, 255))
+        frame[mask != 0] = [120, 255, 255]  # Blue text
+        frame[mask == 0] = [30, 255, 255]  # Yellow background
+        return cv2.cvtColor(frame, cv2.COLOR_HSV2BGR)
+    
+    def white_on_blue(self, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(frame, (100, 150, 0), (140, 255, 255))
+        frame[mask != 0] = [0, 0, 255]  # White text
+        frame[mask == 0] = [120, 255, 255]  # Blue background
+        return cv2.cvtColor(frame, cv2.COLOR_HSV2BGR)
+    
+    def black_on_red(self, frame):
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(frame, (0, 70, 50), (10, 255, 255))
+        frame[mask != 0] = [0, 0, 0]  # Black text
+        frame[mask == 0] = [0, 255, 255]  # Red background
+        return cv2.cvtColor(frame, cv2.COLOR_HSV2BGR)
+    
+    
 
     def high_contrast(self, frame):
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
@@ -522,11 +613,9 @@ class VideoRecorderApp:
         return frame
 
     def yellow_on_blue(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, (0, 0, 200), (180, 255, 255))  # Light areas (white text)
-        frame[mask != 0] = (0, 255, 255)  # Yellow
-        frame[mask == 0] = (255, 0, 0)  # Blue
-        return frame
+    # Yellow text on blue background
+        return self.apply_colored_filter(frame, (0, 255, 255), (255, 0, 0), (0, 100, 100), (50, 255, 255))
+    
 
     def black_on_yellow(self, frame):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -544,18 +633,12 @@ class VideoRecorderApp:
         return frame
 
     def blue_on_white(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, (0, 0, 200), (180, 255, 255))  # Light areas (white text)
-        frame[mask != 0] = (255, 0, 0)  # Blue
-        frame[mask == 0] = (255, 255, 255)  # White
-        return frame
+        # Blue text on white background
+        return self.apply_colored_filter(frame, (255, 0, 0), (255, 255, 255), (110, 50, 50), (130, 255, 255))
 
     def red_on_black(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, (0, 0, 200), (180, 255, 255))  # Light areas (white text)
-        frame[mask != 0] = (0, 0, 255)  # Red
-        frame[mask == 0] = (0, 0, 0)  # Black
-        return frame
+        # Red text on black background
+        return self.apply_colored_filter(frame, (0, 0, 255), (0, 0, 0), (0, 70, 50), (10, 255, 255))
 
     def normal(self, frame):
         return frame
